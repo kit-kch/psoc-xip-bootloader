@@ -3,18 +3,18 @@
 ## Introduction
 
 The PSoC Bootloader is a fork of the [XIP Bootloader](https://github.com/betocool-prog/neorv32-xip-bootloader).
-It comes in two versions: A full one and a tiny one, that's used to reduce code size and therefore the bootloader rom.
+It comes in two versions: A [full one](./bootloader_full/) and a [tiny one](./bootloader_tiny/), that's used to reduce code size and therefore the bootloader rom.
 
-The tiny version can only boot an exgternal flash in XIP mode and can't do anything else.
+The tiny version can only boot an external flash in XIP mode and can't do anything else.
 Programming then needs to be done with an external flash programmer or with a JTAG based flash programmer.
 
 The full version allows you to write a binary file to flash, read data from flash, erase sectors, check the status byte and execute your program from flash using UART commands.
 To reduce the code size, a binary protocol is used for UART communication.
 
-The bootloader setup consists of three files, two bootloader_xip.c and one neorv_sh.py.
+The bootloader setup consists of three files, `bootloader_xip.c` for each bootloader and `neorv_sh.py` for the full one.
 
-[bootloader_xip.c](bootloader_xip.c) is the source code for each bootloader.
-[neorv_sh.py](neorv_sh.py) is a command line interface which lets you interact with the full bootloader.
+* [bootloader_xip.c](bootloader_xip.c) is the source code for each bootloader.
+* [neorv_sh.py](neorv_sh.py) is a command line interface which lets you interact with the full bootloader.
 
 
 ## Usage
@@ -31,18 +31,18 @@ make clean_all
 make bl_image
 ```
 will generate the XIP bootloader VHDL file `neorv32_bootloader_image.vhd` in the bootloader folder.
-Refernce this one innstead of the one in the NEORV32 directory and re-build your VHDL project.
+Reference this one instead of the one in the NEORV32 directory and re-build your VHDL project.
 
 The default settings for the XIP bootloader are:
 - 3 byte addresses
 - Executable start address in flash:  0x000000
 - XIP base address 0x20000000
 
-The values above can be updated in the [bootloader_xip.c](bootloader_xip.c) file:
+The values above can be updated in the `bootloader_xip.c` files.
 
 ### Compiling a firmware application
 For a compiled application to run, the `__neorv32_rom_base` needs to be defined to the (XIP base address + Flash start address) when linking.
-You can achieve this by adding the following to your `USER_FLAGS` in the Makefile, before including the `common.mk` file:
+You can achieve this by adding the following to your `USER_FLAGS` in the `makefile`, before including the `common.mk` file:
 
 ```Makefile
 USER_FLAGS = -Wl,--defsym=__neorv32_rom_base=0x20000000
