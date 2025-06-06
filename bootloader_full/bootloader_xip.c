@@ -66,7 +66,7 @@
 
 /** Set to 0 to disable bootloader status LED (heart beat) at GPIO.gpio_o(STATUS_LED_PIN) */
 #ifndef STATUS_LED_EN
-  #define STATUS_LED_EN 1
+  #define STATUS_LED_EN 0
 #endif
 
 /** GPIO output pin for high-active bootloader status LED (heart beat) */
@@ -93,7 +93,7 @@
 
 /** Time until the auto-boot sequence starts (in seconds); 0 = disabled */
 #ifndef AUTO_BOOT_TIMEOUT
-  #define AUTO_BOOT_TIMEOUT 8
+  #define AUTO_BOOT_TIMEOUT 5
 #endif
 
 /* ---- XIP configuration ---- */
@@ -115,7 +115,7 @@
 
 /** SPI flash boot base address */
 #ifndef SPI_FLASH_BASE_ADDR
-  #define SPI_FLASH_BASE_ADDR 0x00400000
+  #define SPI_FLASH_BASE_ADDR 0x00000000
 #endif
 
 /** XIP Page Base */
@@ -129,14 +129,9 @@
  * Error codes
  **************************************************************************/
 enum ERROR_CODES {
-  ERROR_SIGNATURE = 0x01, /**< 1: Wrong signature in executable */
-  ERROR_SIZE      = 0x02, /**< 2: Insufficient instruction memory capacity */
-  ERROR_CHECKSUM  = 0x04, /**< 4: Checksum error in executable */
   ERROR_FLASH     = 0x08, /**< 8: SPI flash access error */
   ERROR_XIP_SETUP = 0x10, /**< 16: XIP Setup error */
-  ERROR_XIP_XFER  = 0x20, /**< 32: XIP transfer error */
   ERROR_FLASH_WR  = 0x40, /**< 64: Flash write error */
-  ERROR_TRAP      = 0x80, /**< 128: Other error */
 };
 
 
@@ -144,34 +139,11 @@ enum ERROR_CODES {
  * SPI flash commands
  **************************************************************************/
 enum SPI_FLASH_CMD {
-  SPI_FLASH_CMD_WRITE_STATUS  = 0x01, /**< Write Status */
   SPI_FLASH_CMD_WRITE_BYTES   = 0x02, /**< Program page */
   SPI_FLASH_CMD_READ          = 0x03, /**< Read data */
-  SPI_FLASH_CMD_WRITE_DISABLE = 0x04, /**< Disallow write access */
   SPI_FLASH_CMD_READ_STATUS   = 0x05, /**< Get status register */
   SPI_FLASH_CMD_WRITE_ENABLE  = 0x06, /**< Allow write access */
-  SPI_FLASH_CMD_READ_ID       = 0x16,  /**< Read silicon ID */
   SPI_FLASH_CMD_SECTOR_ERASE  = 0xD8  /**< Erase complete sector */
-};
-
-
-/**********************************************************************//**
- * SPI flash status register bits
- **************************************************************************/
-enum SPI_FLASH_SREG {
-  FLASH_SREG_BUSY = 0, /**< Busy, write/erase in progress when set, read-only */
-  FLASH_SREG_WEL  = 1  /**< Write access enabled when set, read-only */
-};
-
-
-/**********************************************************************//**
- * NEORV32 executable
- **************************************************************************/
-enum NEORV32_EXECUTABLE {
-  EXE_OFFSET_SIGNATURE =  0, /**< Offset in bytes from start to signature (32-bit) */
-  EXE_OFFSET_SIZE      =  4, /**< Offset in bytes from start to size (32-bit) */
-  EXE_OFFSET_CHECKSUM  =  8, /**< Offset in bytes from start to checksum (32-bit) */
-  EXE_OFFSET_DATA      = 12, /**< Offset in bytes from start to data (32-bit) */
 };
 
 
@@ -186,7 +158,6 @@ enum CONSOLE_CMDS {
     RESET           = 0x04, /** Resets the bootloader **/
     ERASE_SECTOR    = 0x06, /** Flash Erase Sector Command **/
     STATUS_BYTE     = 0x07, /** Read Status Byte Command **/
-    DEMO            = 0x08, /** Flash the demo program at 0x400000 **/
 };
 
 // SPI Flash data
@@ -195,40 +166,7 @@ union {
   uint32_t uint32[sizeof(uint64_t)/sizeof(uint32_t)];
 } data;
 
-uint32_t addr = 0;
-uint32_t len = 0;
-char data_page[256] = {0};
-
-/**********************************************************************//**
- * @name Simple program to be stored to the XIP flash.
- * This is the "blink_led_asm" from the rv32i-version "blink_led" demo program.
- **************************************************************************/
-const uint32_t xip_program[] = 
-{
-  0xfc800513,
-  0x00052023,
-  0x00000313,
-  0x0ff37313,
-  0x00652023,
-  0x00130313,
-  0x008000ef,
-  0xff1ff06f,
-  0x001003b7,
-  0xfff38393,
-  0x00038a63,
-  0xfff38393,
-  0x00000013,
-  0x00000013,
-  0xff1ff06f,
-  0x00008067
-};
-
 // Function prototypes
-void __attribute__((__interrupt__)) bootloader_trap_handler(void);
-void start_app(void);
-void get_exe(int src);
-void save_exe(void);
-uint32_t get_exe_word(int src, uint32_t addr);
 void system_error(uint8_t err_code);
 
 // Flash function prototypes 
@@ -256,7 +194,7 @@ int main(void)
   uint32_t retval = 0;
 
 #if (XIP_EN != 0)
-  retval = neorv32_xip_setup(CLK_PRSC_2, 0, 0, 0x03);
+  retval = neorv32_xip_setup(CLK_PRSC_8, 0, 0, 0x03);
 #else
   #error In order to use the XIP bootloader, the XIP module must be implemented
 #endif
@@ -266,49 +204,24 @@ int main(void)
     system_error(0xFF & ERROR_XIP_SETUP);
   }
 
-#if (STATUS_LED_EN != 0)
-  if (neorv32_gpio_available()) {
-    // activate status LED, clear all others
-    neorv32_gpio_port_set(1 << STATUS_LED_PIN);
-  }
-#endif
-
 #if (UART_EN != 0)
   // setup UART0 (primary UART, no parity bit, no hardware flow control)
   neorv32_uart0_setup(UART_BAUD, PARITY_NONE, FLOW_CONTROL_NONE);
 #endif
 
-  // Configure machine system timer interrupt
-  if (neorv32_mtime_available()) {
-    neorv32_mtime_set_timecmp(0 + (NEORV32_SYSINFO.CLK/4));
-    // active timer IRQ
-    neorv32_cpu_csr_write(CSR_MIE, 1 << CSR_MIE_MTIE); // activate MTIME IRQ source only!
-  }
-
-  // configure trap handler (bare-metal, no neorv32 rte available) 
-  // after all peripherals are OK!
-  neorv32_cpu_csr_write(CSR_MTVEC, (uint32_t)(&bootloader_trap_handler));
-  neorv32_cpu_eint(); // enable global interrupts
-
   // ------------------------------------------------
   // Auto boot sequence
   // ------------------------------------------------
-#if (XIP_EN != 0)
-#if (AUTO_BOOT_TIMEOUT != 0)
-  if (neorv32_mtime_available())
   {
     uint64_t timeout_time = neorv32_mtime_get_time() + (uint64_t)(AUTO_BOOT_TIMEOUT * NEORV32_SYSINFO.CLK);
 
     while(retval == 0)
     {
-      if (neorv32_uart0_available())
-      { 
-        // wait for a poke...
-        if (neorv32_uart0_char_received())
-        {
-          neorv32_uart0_putc(0x00);
-          retval = 1;
-        }
+      // wait for a poke...
+      if (neorv32_uart0_char_received())
+      {
+        neorv32_uart0_putc(0x00);
+        retval = 1;
       }
 
       if(retval == 0)
@@ -320,27 +233,21 @@ int main(void)
           // * map the XIP flash to the address space starting at XIP_PAGE_BASE
           if (neorv32_xip_start(SPI_FLASH_ADDR_BYTES, XIP_PAGE_BASE))
           {
-            retval = 1;
             system_error(0xFF & ERROR_XIP_SETUP);
           }
+          neorv32_xip_burst_mode_enable();
 
-          if(retval == 0)
-          {
             // finally, jump to the XIP flash's base address we have configured to start execution **from there**
             asm volatile ("call %[dest]" : : [dest] "i" (XIP_PAGE_BASE + SPI_FLASH_BASE_ADDR));
             while(1);
-          }
         }
       }
     }
   }
-#else
-  PRINT_TEXT("Aborted.\n\n");
-#endif
-#else
-  PRINT_TEXT("\n\n");
-#endif
 
+  uint32_t addr = 0;
+  uint32_t len = 0;
+  char data_page[256];
 
   // ------------------------------------------------
   // Main loop
@@ -372,8 +279,8 @@ int main(void)
       {
         system_error(0xFF & ERROR_XIP_SETUP);
       }
+      neorv32_xip_burst_mode_enable();
 
-      neorv32_gpio_port_set(0x0);
       // finally, jump to the XIP flash's base address we have configured to start execution **from there**
       asm volatile ("call %[dest]" : : [dest] "i" (XIP_PAGE_BASE + SPI_FLASH_BASE_ADDR));
       while(1);
@@ -394,7 +301,6 @@ int main(void)
       for(aux = 0; aux < len; aux++)
       {
         data_page[aux] = neorv32_uart0_getc();
-        neorv32_gpio_port_set(data_page[aux] & 0x7F); // Visual aid. Completely optional
       }
 
       flash_write(addr, aux, data_page);
@@ -422,12 +328,6 @@ int main(void)
       }
       flash_erase_sector(addr);
       neorv32_uart0_putc(console_cmd);
-    }
-    else if (console_cmd == DEMO)
-    {
-      flash_erase_sector(SPI_FLASH_BASE_ADDR);
-      flash_write(SPI_FLASH_BASE_ADDR, 64, (char*)xip_program);
-      neorv32_uart0_putc(DEMO);
     }
     else if (console_cmd == STATUS_BYTE)
     {
@@ -602,51 +502,5 @@ void flash_read_status(void)
  * @param[in] err_code Error code. See #ERROR_CODES and #error_message.
  **************************************************************************/
 void system_error(uint8_t err_code) {
-
-  neorv32_cpu_dint(); // deactivate IRQs
-#if (STATUS_LED_EN != 0)
-  if (neorv32_gpio_available()) {
-    neorv32_gpio_port_set(0xFF & err_code); // permanently light up status LED
-  }
-#endif
-
   while(1); // freeze
-}
-
-
-/**********************************************************************//**
- * Bootloader trap handler. Used for the MTIME tick and to capture any other traps.
- *
- * @warning Adapt exception PC only for sync exceptions!
- *
- * @note Since we have no runtime environment, we have to use the interrupt attribute here. Here and only here!
- **************************************************************************/
-void __attribute__((__interrupt__)) bootloader_trap_handler(void) {
-
-  register uint32_t cause = neorv32_cpu_csr_read(CSR_MCAUSE);
-
-  // Machine timer interrupt
-  if (cause == TRAP_CODE_MTI) { // raw exception code for MTI
-#if (STATUS_LED_EN != 0)
-    if (neorv32_gpio_available()) {
-      neorv32_gpio_pin_toggle(STATUS_LED_PIN); // toggle status LED
-    }
-#endif
-    // set time for next IRQ
-    if (neorv32_mtime_available()) {
-      neorv32_mtime_set_timecmp(neorv32_mtime_get_timecmp() + (NEORV32_SYSINFO.CLK/4));
-    }
-  }
-
-  // Bus store access error during get_exe
-  else if (cause == TRAP_CODE_S_ACCESS) {
-    system_error(ERROR_TRAP); //
-  }
-
-  // Anything else (that was not expected); output exception notifier and try to resume
-  else {
-    register uint32_t epc = neorv32_cpu_csr_read(CSR_MEPC);
-    neorv32_cpu_csr_write(CSR_MEPC, epc + 4); // advance to next instruction
-    system_error(0xFF); //
-  }
 }

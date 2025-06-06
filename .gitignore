@@ -5,11 +5,9 @@ __pycache__
 # generated application files
 *.bin
 *.o
-*.elf
 *.asm
 *.out
 *.hex
-*_image.vhd
 
 # temporary/legacy files/folders
 *.tmp
