@@ -40,7 +40,7 @@ Reference this one instead of the one in the NEORV32 directory and re-build your
 The default settings for the XIP bootloader are:
 - 3 byte addresses
 - Executable start address in flash:  0x000000
-- XIP base address 0x20000000
+- XIP base address 0xE0000000 (hardcoded in NEORV32 v1.11.0)
 
 The values above can be updated in the `bootloader_xip.c` files.
 
@@ -49,7 +49,12 @@ For a compiled application to run, the `__neorv32_rom_base` needs to be defined 
 You can achieve this by adding the following to your `USER_FLAGS` in the `makefile`, before including the `common.mk` file:
 
 ```Makefile
-USER_FLAGS = -Wl,--defsym=__neorv32_rom_base=0x20000000
+USER_FLAGS=-Wl,--defsym=__neorv32_rom_base=0xE0000000
+```
+
+Instead of modifying makefiles, you can also define this flag on the command line:
+```bash
+make USER_FLAGS=-Wl,--defsym=__neorv32_rom_base=0xE0000000 elf
 ```
 
 ### Debugging the Bootloader
