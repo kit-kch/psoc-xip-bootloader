@@ -120,7 +120,7 @@
 
 /** XIP Page Base */
 #ifndef XIP_PAGE_BASE
-  #define XIP_PAGE_BASE 0x20000000
+  #define XIP_PAGE_BASE 0xE0000000
 #endif
 /**@}*/
 
@@ -194,26 +194,21 @@ int main(void)
   uint32_t retval = 0;
 
 #if (XIP_EN != 0)
-  retval = neorv32_xip_setup(CLK_PRSC_8, 0, 0, 0x03);
+  neorv32_xip_setup(CLK_PRSC_8, 1, 0, 0, 0x03);
 #else
   #error In order to use the XIP bootloader, the XIP module must be implemented
 #endif
-  if(retval)
-  {
-    // Wrong configuration
-    system_error(0xFF & ERROR_XIP_SETUP);
-  }
 
 #if (UART_EN != 0)
   // setup UART0 (primary UART, no parity bit, no hardware flow control)
-  neorv32_uart0_setup(UART_BAUD, PARITY_NONE, FLOW_CONTROL_NONE);
+  neorv32_uart0_setup(UART_BAUD, 0);
 #endif
 
   // ------------------------------------------------
   // Auto boot sequence
   // ------------------------------------------------
   {
-    uint64_t timeout_time = neorv32_mtime_get_time() + (uint64_t)(AUTO_BOOT_TIMEOUT * NEORV32_SYSINFO.CLK);
+    uint64_t timeout_time = neorv32_clint_time_get() + (uint64_t)(AUTO_BOOT_TIMEOUT * NEORV32_SYSINFO->CLK);
 
     while(retval == 0)
     {
@@ -226,16 +221,15 @@ int main(void)
 
       if(retval == 0)
       {
-        if (neorv32_mtime_get_time() >= timeout_time) 
+        if (neorv32_clint_time_get() >= timeout_time) 
         { // timeout? start auto boot sequence
           // configure and enable the actual XIP mode
           // * configure 3 address bytes send to the SPI flash for addressing
           // * map the XIP flash to the address space starting at XIP_PAGE_BASE
-          if (neorv32_xip_start(SPI_FLASH_ADDR_BYTES, XIP_PAGE_BASE))
+          if (neorv32_xip_start(SPI_FLASH_ADDR_BYTES))
           {
             system_error(0xFF & ERROR_XIP_SETUP);
           }
-          neorv32_xip_burst_mode_enable();
 
             // finally, jump to the XIP flash's base address we have configured to start execution **from there**
             asm volatile ("call %[dest]" : : [dest] "i" (XIP_PAGE_BASE + SPI_FLASH_BASE_ADDR));
@@ -262,7 +256,7 @@ int main(void)
       neorv32_uart0_putc(console_cmd);
       while (neorv32_uart0_tx_busy()); /** Wait for transmission to end **/
       
-      asm volatile ("li t0, %[input_i]; jr t0" :  : [input_i] "i" (BOOTLOADER_BASE_ADDRESS)); // jump to beginning of boot ROM
+      asm volatile ("li t0, %[input_i]; jr t0" :  : [input_i] "i" (NEORV32_BOOTROM_BASE)); // jump to beginning of boot ROM
     }
     else if (console_cmd == POKE)
     {
@@ -275,11 +269,10 @@ int main(void)
       // * configure 3 address bytes send to the SPI flash for addressing
       // * map the XIP flash to the address space starting at XIP_PAGE_BASE
       retval = 0;
-      if (neorv32_xip_start(SPI_FLASH_ADDR_BYTES, XIP_PAGE_BASE))
+      if (neorv32_xip_start(SPI_FLASH_ADDR_BYTES))
       {
         system_error(0xFF & ERROR_XIP_SETUP);
       }
-      neorv32_xip_burst_mode_enable();
 
       // finally, jump to the XIP flash's base address we have configured to start execution **from there**
       asm volatile ("call %[dest]" : : [dest] "i" (XIP_PAGE_BASE + SPI_FLASH_BASE_ADDR));
@@ -350,19 +343,13 @@ void flash_erase_sector(uint32_t addr)
   // 1 byte command
   //data.uint32[0] = 0; // irrelevant, TX packet is MSB-aligned
   // data.uint32[1] = 0; // command: set write-enable latch
-  if(0 != neorv32_xip_spi_trans(1, &data.uint64))
-  {
-    system_error(0xFF & ERROR_FLASH);
-  };
+  neorv32_xip_spi_trans(1, &data.uint64);
     
   // set write-enable latch
   // 1 byte command
   //data.uint32[0] = 0; // irrelevant, TX packet is MSB-aligned
   data.uint32[1] = (SPI_FLASH_CMD_WRITE_ENABLE << 24) & 0xFF000000; // command: set write-enable latch
-  if(0 != neorv32_xip_spi_trans(1, &data.uint64))
-  {
-    system_error(0xFF & ERROR_FLASH_WR);
-  };
+  neorv32_xip_spi_trans(1, &data.uint64);
 
   data.uint64 = 0; 
   // erase sector
@@ -370,20 +357,14 @@ void flash_erase_sector(uint32_t addr)
   //data.uint32[0] = 0; // irrelevant, TX packet is MSB-aligned
   data.uint32[1] = (SPI_FLASH_CMD_SECTOR_ERASE << 24) & 0xFF000000; // command: erase sector
   data.uint32[1] |= addr & 0x00FFFFFF; // address data
-  if(0 != neorv32_xip_spi_trans(SPI_FLASH_ADDR_BYTES + 1, &data.uint64))
-  {
-    system_error(0xFF & ERROR_FLASH_WR);
-  };
+  neorv32_xip_spi_trans(SPI_FLASH_ADDR_BYTES + 1, &data.uint64);
 
   data.uint64 = 0; 
   // check status register: WIP bit has to clear
   while(1) {
     // data.uint32[0] = 0; // irrelevant, TX packet is MSB-aligned
     data.uint32[1] = (SPI_FLASH_CMD_READ_STATUS << 24) & 0xFF000000;
-    if(0 != neorv32_xip_spi_trans(2, &data.uint64))
-    {
-      system_error(0xFF & ERROR_FLASH_WR);
-    };
+    neorv32_xip_spi_trans(2, &data.uint64);
     if ((data.uint32[0] & 0x01) == 0) { // WIP bit cleared?
       break;
     }
@@ -410,10 +391,7 @@ void flash_read(uint32_t addr, uint32_t len)
     tmp |= (aux & 0x00FFFFFF); // address
     data.uint32[0] = 0; // irrelevant, TX packet is MSB-aligned
     data.uint32[1] = tmp;
-    if(0 != neorv32_xip_spi_trans(SPI_FLASH_ADDR_BYTES + 2, &data.uint64))
-    {
-      system_error(0xFF & ERROR_FLASH);
-    };
+    neorv32_xip_spi_trans(SPI_FLASH_ADDR_BYTES + 2, &data.uint64);
     aux++;
     cnt++;
 
@@ -438,10 +416,7 @@ void flash_write(uint32_t addr, uint32_t len, char* data_ptr)
   {
     // Set Enable Write 
     data.uint32[1] = (SPI_FLASH_CMD_WRITE_ENABLE << 24) & 0xFF000000;
-    if(0 != neorv32_xip_spi_trans(1, &data.uint64))
-    {
-      system_error(0xFF & ERROR_FLASH_WR);
-    };
+    neorv32_xip_spi_trans(1, &data.uint64);
     // write word
     // 1 byte command, 3 bytes address, 4 bytes data
     tmp = SPI_FLASH_CMD_WRITE_BYTES << 24; // command: byte read
@@ -456,20 +431,14 @@ void flash_write(uint32_t addr, uint32_t len, char* data_ptr)
       }
     }
     data.uint32[1] = tmp;
-    if(0 != neorv32_xip_spi_trans(SPI_FLASH_ADDR_BYTES + 5, &data.uint64))
-    {
-      system_error(0xFF & ERROR_FLASH_WR);
-    };
+    neorv32_xip_spi_trans(SPI_FLASH_ADDR_BYTES + 5, &data.uint64);
 
     // check status register: WIP bit has to clear
     while(1)
     {
       // data.uint32[0] = 0; // irrelevant, TX packet is MSB-aligned
       data.uint32[1] = (SPI_FLASH_CMD_READ_STATUS << 24) & 0xFF000000;
-      if(0 != neorv32_xip_spi_trans(2, &data.uint64))
-      {
-        system_error(0xFF & ERROR_FLASH);
-      };
+      neorv32_xip_spi_trans(2, &data.uint64);
       if ((data.uint32[0] & 0x01) == 0)
       { // WIP bit cleared?
         break;
@@ -488,10 +457,7 @@ void flash_read_status(void)
   // 1 byte command, 1 byte data
   data.uint32[0] = 0; // irrelevant, TX packet is MSB-aligned
   data.uint32[1] = (SPI_FLASH_CMD_READ_STATUS << 24) & 0xFF000000;
-  if(0 != neorv32_xip_spi_trans(3, &data.uint64))
-  {
-    system_error(0xFF & ERROR_FLASH);
-  };
+  neorv32_xip_spi_trans(3, &data.uint64);
 
   neorv32_uart0_putc(data.uint32[0] & 0xFF);  
 }

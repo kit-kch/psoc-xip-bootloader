@@ -19,6 +19,10 @@ The bootloader setup consists of three files, `bootloader_xip.c` for each bootlo
 
 ## Usage
 
+### NEORV Version
+
+This bootloader was tested and built for NEORV32 version `1.11.0`.
+
 ### Prebuilt files
 
 Each of the bootloaders comes with a ready to use `neorv32_bootloader_image.vhd` file.
@@ -46,6 +50,28 @@ You can achieve this by adding the following to your `USER_FLAGS` in the `makefi
 
 ```Makefile
 USER_FLAGS = -Wl,--defsym=__neorv32_rom_base=0x20000000
+```
+
+### Debugging the Bootloader
+
+You can debug the bootloader using JTAG and gdb.
+To get proper debug info, do not load your applications `main.elf` but the one belonging to the bootloader.
+If you want to soft-reset while the JTAG debugger is active, just jump to the bootloader address:
+
+```bash
+riscv-none-elf-gdb
+
+target extended-remote localhost:3333
+file main.elf
+# Whatever you want to debug
+#hbreak _start
+hbreak main
+j _start
+```
+
+Note: You can also jump to the bootloader when debugging an applicaiton, but you'll have to use the address:
+```bash
+j *(0xffe00000)
 ```
 
 ### Running the command line interface, neorv_sh.py
