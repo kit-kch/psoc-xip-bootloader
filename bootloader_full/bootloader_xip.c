@@ -194,7 +194,7 @@ int main(void)
   uint32_t retval = 0;
 
 #if (XIP_EN != 0)
-  neorv32_xip_setup(CLK_PRSC_8, 1, 0, 0, 0x03);
+  neorv32_xip_setup(CLK_PRSC_2, 1, 0, 0, 0x03);
 #else
   #error In order to use the XIP bootloader, the XIP module must be implemented
 #endif

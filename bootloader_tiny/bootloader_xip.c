@@ -8,7 +8,7 @@ __attribute__((noreturn)) void _start(void)
 {
     uint32_t ctrl = 0;
     ctrl |= ((uint32_t)(1)) << XIP_CTRL_EN; // enable module
-    ctrl |= ((uint32_t)(CLK_PRSC_8 & 0x07)) << XIP_CTRL_PRSC0;
+    ctrl |= ((uint32_t)(CLK_PRSC_2 & 0x07)) << XIP_CTRL_PRSC0;
     ctrl |= ((uint32_t)(0   & 0x01)) << XIP_CTRL_CPOL;
     ctrl |= ((uint32_t)(0   & 0x01)) << XIP_CTRL_CPHA;
     ctrl |= ((uint32_t)(0x3 & 0xff)) << XIP_CTRL_RD_CMD_LSB;
